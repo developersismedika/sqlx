@@ -51,9 +51,9 @@ func mapper() *reflectx.Mapper {
 
 // isScannable takes the reflect.Type and the actual dest value and returns
 // whether or not it's Scannable.  Something is scannable if:
-//   * it is not a struct
-//   * it implements sql.Scanner
-//   * it has no exported fields
+//   - it is not a struct
+//   - it implements sql.Scanner
+//   - it has no exported fields
 func isScannable(t reflect.Type) bool {
 	if reflect.PtrTo(t).Implements(_scannerInterface) {
 		return true
@@ -621,7 +621,8 @@ func (r *Rows) StructScan(dest interface{}) error {
 		r.started = true
 	}
 
-	err := fieldsByTraversal(v, r.fields, r.values, true)
+	octx := reflectx.NewObjectContext()
+	err := fieldsByTraversal(octx, v, r.fields, r.values, true)
 	if err != nil {
 		return err
 	}
@@ -781,7 +782,9 @@ func (r *Row) scanAny(dest interface{}, structOnly bool) error {
 	}
 	values := make([]interface{}, len(columns))
 
-	err = fieldsByTraversal(v, fields, values, true)
+	octx := reflectx.NewObjectContext()
+
+	err = fieldsByTraversal(octx, v, fields, values, true)
 	if err != nil {
 		return err
 	}
@@ -884,9 +887,9 @@ func structOnlyError(t reflect.Type) error {
 // then each row must only have one column which can scan into that type.  This
 // allows you to do something like:
 //
-//    rows, _ := db.Query("select id from people;")
-//    var ids []int
-//    scanAll(rows, &ids, false)
+//	rows, _ := db.Query("select id from people;")
+//	var ids []int
+//	scanAll(rows, &ids, false)
 //
 // and ids will be a list of the id results.  I realize that this is a desirable
 // interface to expose to users, but for now it will only be exposed via changes
@@ -948,13 +951,14 @@ func scanAll(rows rowsi, dest interface{}, structOnly bool) error {
 			return fmt.Errorf("missing destination name %s in %T", columns[f], dest)
 		}
 		values = make([]interface{}, len(columns))
+		octx := reflectx.NewObjectContext()
 
 		for rows.Next() {
 			// create a new struct type (which returns PtrTo) and indirect it
 			vp = reflect.New(base)
 			v = reflect.Indirect(vp)
 
-			err = fieldsByTraversal(v, fields, values, true)
+			err = fieldsByTraversal(octx, v, fields, values, true)
 			if err != nil {
 				return err
 			}
@@ -1020,18 +1024,20 @@ func baseType(t reflect.Type, expected reflect.Kind) (reflect.Type, error) {
 // when iterating over many rows.  Empty traversals will get an interface pointer.
 // Because of the necessity of requesting ptrs or values, it's considered a bit too
 // specialized for inclusion in reflectx itself.
-func fieldsByTraversal(v reflect.Value, traversals [][]int, values []interface{}, ptrs bool) error {
+func fieldsByTraversal(octx *reflectx.ObjectContext, v reflect.Value, traversals [][]int, values []interface{}, ptrs bool) error {
 	v = reflect.Indirect(v)
 	if v.Kind() != reflect.Struct {
 		return errors.New("argument not a struct")
 	}
+
+	octx.NewRow(v)
 
 	for i, traversal := range traversals {
 		if len(traversal) == 0 {
 			values[i] = new(interface{})
 			continue
 		}
-		f := reflectx.FieldByIndexes(v, traversal)
+		f := octx.FieldForIndexes(traversal)
 		if ptrs {
 			values[i] = f.Addr().Interface()
 		} else {
