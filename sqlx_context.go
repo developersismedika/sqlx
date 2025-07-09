@@ -1,3 +1,4 @@
+//go:build go1.8
 // +build go1.8
 
 package sqlx
@@ -9,7 +10,12 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"reflect"
+	"sync/atomic"
+
+	"github.com/developersismedika/sqlx/logger"
 )
+
+var preparedStmtCount int32 // Atomic counter for tracking prepared statements
 
 // ConnectContext to a database and verify with a ping.
 func ConnectContext(ctx context.Context, driverName, dataSourceName string) (*DB, error) {
@@ -73,6 +79,38 @@ func PreparexContext(ctx context.Context, p PreparerContext, query string) (*Stm
 	return &Stmt{Stmt: s, unsafe: isUnsafe(p), Mapper: mapperFor(p)}, err
 }
 
+// MonitorPreparexContext wraps PreparexContext to monitor prepared statements
+// this a custom function that adds a monitoring information
+//
+//	by showing increments a counter each time a statement is prepared.
+func MonitorPreparexContext(ctx context.Context, p PreparerContext, query, serviceName string, log logger.Logger) (*Stmt, error) {
+	stmt, err := PreparexContext(ctx, p, query)
+	if err != nil {
+		return nil, err
+	}
+
+	atomic.AddInt32(&preparedStmtCount, 1) // increments counter
+
+	// logs it into the logger
+	log.Debug(fmt.Sprintf("[%s] prepared statement: %s, current count: %d", serviceName, query,
+		atomic.LoadInt32(&preparedStmtCount)))
+
+	return stmt, nil
+}
+
+// MonitorStmtClose wraps Stmt.Close to monitor statement closure
+func MonitorStmtClose(stmt *Stmt, serviceName string, log logger.Logger) error {
+	err := stmt.Stmt.Close()
+	if err == nil {
+		atomic.AddInt32(&preparedStmtCount, -1) // Decrement counter
+
+		// logs it into the logger
+		log.Debug(fmt.Sprintf("[%s] prepared statement closed, current count: %d", serviceName,
+			atomic.LoadInt32(&preparedStmtCount)))
+	}
+	return err
+}
+
 // GetContext does a QueryRow using the provided Queryer, and scans the
 // resulting row to dest.  If dest is scannable, the result must only have one
 // column. Otherwise, StructScan is used.  Get will return sql.ErrNoRows like
@@ -120,6 +158,24 @@ func MustExecContext(ctx context.Context, e ExecerContext, query string, args ..
 // PrepareNamedContext returns an sqlx.NamedStmt
 func (db *DB) PrepareNamedContext(ctx context.Context, query string) (*NamedStmt, error) {
 	return prepareNamedContext(ctx, db, query)
+}
+
+// PrepareNamedContextWithLogger returns an sqlx.NamedStmt with a logger.
+func (db *DB) PrepareNamedContextWithLogger(ctx context.Context, query, serviceName string, log logger.Logger) (*NamedStmt, error) {
+	return prepareNamedContextWithLogger(ctx, db, query, serviceName, log)
+}
+
+// MonitorPreparexContext wraps PreparexContext to monitor prepared statements
+// this a custom function that adds a monitoring information
+//
+//	by showing increments a counter each time a statement is prepared.
+func (db *DB) MonitorPreparexContext(ctx context.Context, p PreparerContext, query, serviceName string, log logger.Logger) (*Stmt, error) {
+	return MonitorPreparexContext(ctx, p, query, serviceName, log)
+}
+
+// MonitorStmtClose wraps Stmt.Close to monitor statement closure
+func (db *DB) MonitorStmtClose(stmt *Stmt, serviceName string, log logger.Logger) error {
+	return MonitorStmtClose(stmt, serviceName, log)
 }
 
 // NamedQueryContext using this DB.

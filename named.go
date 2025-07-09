@@ -19,8 +19,10 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"sync/atomic"
 	"unicode"
 
+	"github.com/developersismedika/sqlx/logger"
 	"github.com/developersismedika/sqlx/reflectx"
 )
 
@@ -35,6 +37,19 @@ type NamedStmt struct {
 // Close closes the named statement.
 func (n *NamedStmt) Close() error {
 	return n.Stmt.Close()
+}
+
+// MonitorStmtClose wraps Stmt.Close to monitor statement closure
+func (n *NamedStmt) MonitorStmtClose(serviceName string, log logger.Logger) error {
+	err := n.Stmt.Close()
+	if err == nil {
+		atomic.AddInt32(&preparedStmtCount, -1) // Decrement counter
+
+		// logs it into the logger
+		log.Debug(fmt.Sprintf("[%s] prepared statement closed, current count: %d", serviceName,
+			atomic.LoadInt32(&preparedStmtCount)))
+	}
+	return err
 }
 
 // Exec executes a named statement using the struct passed.
