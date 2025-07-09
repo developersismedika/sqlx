@@ -6,6 +6,7 @@ package sqlx
 import (
 	"context"
 	"database/sql"
+
 	"github.com/developersismedika/sqlx/logger"
 )
 
@@ -58,6 +59,8 @@ func prepareNamedContextWithLogger(ctx context.Context, p namedPreparerContext, 
 		QueryString: q,
 		Params:      args,
 		Stmt:        stmt,
+		Log:         log,
+		ServiceName: serviceName,
 	}, nil
 }
 

@@ -31,7 +31,9 @@ import (
 type NamedStmt struct {
 	Params      []string
 	QueryString string
+	ServiceName string
 	Stmt        *Stmt
+	Log         logger.Logger
 }
 
 // Close closes the named statement.
@@ -40,13 +42,13 @@ func (n *NamedStmt) Close() error {
 }
 
 // MonitorStmtClose wraps Stmt.Close to monitor statement closure
-func (n *NamedStmt) MonitorStmtClose(serviceName string, log logger.Logger) error {
+func (n *NamedStmt) MonitorStmtClose() error {
 	err := n.Stmt.Close()
 	if err == nil {
 		atomic.AddInt32(&preparedStmtCount, -1) // Decrement counter
 
 		// logs it into the logger
-		log.Debug(fmt.Sprintf("[%s] prepared statement closed, current count: %d", serviceName,
+		n.Log.Debug(fmt.Sprintf("[%s] prepared statement closed, current count: %d", n.ServiceName,
 			atomic.LoadInt32(&preparedStmtCount)))
 	}
 	return err
