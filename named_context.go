@@ -1,3 +1,4 @@
+//go:build go1.8
 // +build go1.8
 
 package sqlx
@@ -5,6 +6,7 @@ package sqlx
 import (
 	"context"
 	"database/sql"
+	"github.com/developersismedika/sqlx/logger"
 )
 
 // A union interface of contextPreparer and binder, required to be able to
@@ -14,6 +16,8 @@ type namedPreparerContext interface {
 	binder
 }
 
+// prepareNamedContext prepares a named statement with the provided context and query string.
+// this is the original version of prepareNamedContext that does not use a logger.
 func prepareNamedContext(ctx context.Context, p namedPreparerContext, query string) (*NamedStmt, error) {
 	bindType := BindType(p.DriverName())
 	q, args, err := compileNamedQuery([]byte(query), bindType)
@@ -24,6 +28,32 @@ func prepareNamedContext(ctx context.Context, p namedPreparerContext, query stri
 	if err != nil {
 		return nil, err
 	}
+	return &NamedStmt{
+		QueryString: q,
+		Params:      args,
+		Stmt:        stmt,
+	}, nil
+}
+
+// prepareNamedContextWithLogger is similar to prepareNamedContext but
+// this is a customized version that allows for a named preparer context
+func prepareNamedContextWithLogger(ctx context.Context, p namedPreparerContext, query, serviceName string, log logger.Logger) (*NamedStmt, error) {
+	var err error
+
+	bindType := BindType(p.DriverName())
+	var q string
+	var args []string
+	q, args, err = compileNamedQuery([]byte(query), bindType)
+	if err != nil {
+		return nil, err
+	}
+
+	var stmt *Stmt
+	stmt, err = MonitorPreparexContext(ctx, p, q, serviceName, log)
+	if err != nil {
+		return nil, err
+	}
+
 	return &NamedStmt{
 		QueryString: q,
 		Params:      args,
