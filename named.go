@@ -385,7 +385,10 @@ func compileNamedQuery(qs []byte, bindType int) (query string, names []string, e
 				name = append(name, b)
 			}
 			// add the string representation to the names list
-			names = append(names, string(name))
+			// ONLY WHEN key is not nil!
+			if string(name) != "" {
+				names = append(names, string(name))
+			}
 			// add a proper bindvar for the bindType
 			switch bindType {
 			// oracle only supports named type bind vars even for positional
